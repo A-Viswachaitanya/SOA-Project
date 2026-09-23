@@ -1,0 +1,76 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      discovery:
+        locator:
+          enabled: true
+          lower-case-service-id: true
+      routes:
+        - id: user-service
+          uri: lb://user-service
+          predicates:
+            - Path=/api/users/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: userServiceCircuitBreaker
+                fallbackUri: forward:/fallback/user
+
+        - id: subscription-service-plans
+          uri: lb://subscription-service
+          predicates:
+            - Path=/api/plans/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: subscriptionServiceCircuitBreaker
+                fallbackUri: forward:/fallback/subscription
+
+        - id: subscription-service-subscriptions
+          uri: lb://subscription-service
+          predicates:
+            - Path=/api/subscriptions/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: subscriptionServiceCircuitBreaker
+                fallbackUri: forward:/fallback/subscription
+
+        - id: payment-service
+          uri: lb://payment-service
+          predicates:
+            - Path=/api/payments/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: paymentServiceCircuitBreaker
+                fallbackUri: forward:/fallback/payment
+
+jwt:
+  secret: RecurringFlexSecretKeyForJWTAuthenticationMustBe256Bits
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+  instance:
+    prefer-ip-address: true
+
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10000
+        permitted-number-of-calls-in-half-open-state: 5
+        automatic-transition-from-open-to-half-open-enabled: true
+  timelimiter:
+    configs:
+      default:
+        timeout-duration: 3s
