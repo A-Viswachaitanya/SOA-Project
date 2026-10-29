@@ -6,10 +6,11 @@ spring:
     name: api-gateway
   cloud:
     gateway:
+      # Only the explicit routes below are exposed. The discovery locator is disabled because its
+      # auto-generated /<service-id>/** routes would bypass the path-based admin checks.
       discovery:
         locator:
-          enabled: true
-          lower-case-service-id: true
+          enabled: false
       routes:
         - id: user-service
           uri: lb://user-service
@@ -51,8 +52,14 @@ spring:
                 name: paymentServiceCircuitBreaker
                 fallbackUri: forward:/fallback/payment
 
+# Override secrets with environment variables outside local development
 jwt:
-  secret: RecurringFlexSecretKeyForJWTAuthenticationMustBe256Bits
+  secret: ${JWT_SECRET:RecurringFlexSecretKeyForJWTAuthenticationMustBe256Bits}
+  issuer: recurringflex-user-service
+
+# Sent to downstream services on every forwarded request
+internal:
+  secret: ${INTERNAL_SECRET:RecurringFlexInternalGatewaySecretChangeMe}
 
 eureka:
   client:

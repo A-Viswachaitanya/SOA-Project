@@ -9,11 +9,14 @@ import com.recurringflex.subscriptionservice.dto.UserResponse;
 import com.recurringflex.subscriptionservice.entity.Plan;
 import com.recurringflex.subscriptionservice.entity.Subscription;
 import com.recurringflex.subscriptionservice.entity.SubscriptionStatus;
+import com.recurringflex.subscriptionservice.exception.PaymentFailedException;
+import com.recurringflex.subscriptionservice.exception.ResourceNotFoundException;
 import com.recurringflex.subscriptionservice.repository.SubscriptionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -176,6 +179,8 @@ public class SubscriptionServiceTest {
     @DisplayName("Renew: successfully extends subscription end date and triggers renewal payment")
     void testRenewSubscription_Success() {
         when(subscriptionRepository.findById(100L)).thenReturn(Optional.of(activeSubscription));
+        when(paymentClient.processPayment(any(PaymentRequest.class)))
+                .thenReturn(new PaymentResponse(1L, 100L, 1L, BigDecimal.valueOf(19.99), "SUCCESS", "TXN-1", null));
         when(subscriptionRepository.save(any(Subscription.class))).thenAnswer(i -> i.getArgument(0));
 
         Subscription result = subscriptionService.renewSubscription(100L);
@@ -212,9 +217,79 @@ public class SubscriptionServiceTest {
                 .thenReturn(List.of(activeSubscription));
         when(subscriptionRepository.findById(100L)).thenReturn(Optional.of(activeSubscription));
         when(subscriptionRepository.save(any(Subscription.class))).thenAnswer(i -> i.getArgument(0));
+        when(paymentClient.processPayment(any(PaymentRequest.class)))
+                .thenReturn(new PaymentResponse(1L, 100L, 1L, BigDecimal.valueOf(19.99), "SUCCESS", "TXN-1", null));
 
         subscriptionService.autoRenewSubscriptions();
 
+        assertEquals(SubscriptionStatus.ACTIVE, activeSubscription.getStatus());
         verify(subscriptionRepository, atLeastOnce()).save(activeSubscription);
+    }
+
+    @Test
+    @DisplayName("Subscribe: cancels the subscription and throws when payment is declined")
+    void testSubscribe_PaymentFailed_CancelsSubscription() {
+        SubscribeRequest request = new SubscribeRequest(1L, 1L, true);
+
+        when(userClient.getUserById(1L)).thenReturn(mockUser);
+        when(planService.getPlanById(1L)).thenReturn(standardPlan);
+        when(subscriptionRepository.save(any(Subscription.class))).thenAnswer(i -> {
+            Subscription sub = i.getArgument(0);
+            sub.setId(200L);
+            return sub;
+        });
+        when(paymentClient.processPayment(any(PaymentRequest.class)))
+                .thenReturn(new PaymentResponse(1L, 200L, 1L, BigDecimal.valueOf(19.99), "FAILED", "TXN-1", null));
+
+        assertThrows(PaymentFailedException.class, () -> subscriptionService.subscribe(request));
+
+        ArgumentCaptor<Subscription> captor = ArgumentCaptor.forClass(Subscription.class);
+        verify(subscriptionRepository, times(2)).save(captor.capture());
+        assertEquals(SubscriptionStatus.CANCELLED, captor.getValue().getStatus());
+    }
+
+    @Test
+    @DisplayName("Subscribe: cancels the subscription when payment-service is unreachable")
+    void testSubscribe_PaymentServiceDown_CancelsSubscription() {
+        SubscribeRequest request = new SubscribeRequest(1L, 1L, false);
+
+        when(userClient.getUserById(1L)).thenReturn(mockUser);
+        when(planService.getPlanById(1L)).thenReturn(standardPlan);
+        when(subscriptionRepository.save(any(Subscription.class))).thenAnswer(i -> i.getArgument(0));
+        when(paymentClient.processPayment(any(PaymentRequest.class))).thenThrow(new RuntimeException("Connection refused"));
+
+        assertThrows(PaymentFailedException.class, () -> subscriptionService.subscribe(request));
+    }
+
+    @Test
+    @DisplayName("Renew: does not extend the subscription when payment fails")
+    void testRenewSubscription_PaymentFailed() {
+        LocalDate originalEnd = activeSubscription.getEndDate().minusDays(5);
+        activeSubscription.setEndDate(originalEnd);
+        when(subscriptionRepository.findById(100L)).thenReturn(Optional.of(activeSubscription));
+        when(paymentClient.processPayment(any(PaymentRequest.class))).thenThrow(new RuntimeException("Connection refused"));
+
+        assertThrows(PaymentFailedException.class, () -> subscriptionService.renewSubscription(100L));
+
+        assertEquals(originalEnd, activeSubscription.getEndDate());
+        verify(subscriptionRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Delete: removes an existing subscription")
+    void testDeleteSubscription_Success() {
+        when(subscriptionRepository.findById(100L)).thenReturn(Optional.of(activeSubscription));
+
+        subscriptionService.deleteSubscription(100L);
+
+        verify(subscriptionRepository).delete(activeSubscription);
+    }
+
+    @Test
+    @DisplayName("Get by ID: throws ResourceNotFoundException when missing")
+    void testGetSubscriptionById_NotFound() {
+        when(subscriptionRepository.findById(999L)).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class, () -> subscriptionService.getSubscriptionById(999L));
     }
 }

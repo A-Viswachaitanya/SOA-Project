@@ -1,6 +1,10 @@
 package com.recurringflex.subscriptionservice.entity;
 
 import jakarta.persistence.*;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
@@ -12,14 +16,19 @@ public class Plan {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @NotBlank(message = "Plan name is required")
     @Column(nullable = false)
     private String name;
 
     private String description;
 
+    @NotNull(message = "Price is required")
+    @DecimalMin(value = "0.00", message = "Price cannot be negative")
     @Column(nullable = false)
     private BigDecimal price;
 
+    @NotNull(message = "durationInDays is required")
+    @Min(value = 1, message = "durationInDays must be at least 1")
     @Column(name = "duration_in_days", nullable = false)
     private Integer durationInDays;
 

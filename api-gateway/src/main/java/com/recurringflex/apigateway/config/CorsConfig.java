@@ -26,7 +26,7 @@ public class CorsConfig {
         corsConfig.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "X-Requested-With", "Accept", "Origin"));
 
         // Exposed headers (accessible to browser)
-        corsConfig.setExposedHeaders(Arrays.asList("Authorization", "X-User-Id", "X-User-Role"));
+        corsConfig.setExposedHeaders(Arrays.asList("Authorization", "X-User-Id", "X-User-Role", "X-Instance-Id"));
 
         // Allow credentials (cookies, authorization headers)
         corsConfig.setAllowCredentials(true);

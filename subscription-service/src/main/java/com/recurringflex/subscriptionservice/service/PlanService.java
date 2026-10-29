@@ -1,6 +1,7 @@
 package com.recurringflex.subscriptionservice.service;
 
 import com.recurringflex.subscriptionservice.entity.Plan;
+import com.recurringflex.subscriptionservice.exception.ResourceNotFoundException;
 import com.recurringflex.subscriptionservice.repository.PlanRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -27,7 +28,7 @@ public class PlanService {
 
     public Plan getPlanById(Long id) {
         return planRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Plan not found with id: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("Plan not found with id: " + id));
     }
 
     public Plan updatePlan(Long id, Plan planDetails) {
@@ -36,7 +37,9 @@ public class PlanService {
         plan.setDescription(planDetails.getDescription());
         plan.setPrice(planDetails.getPrice());
         plan.setDurationInDays(planDetails.getDurationInDays());
-        plan.setActive(planDetails.getActive());
+        if (planDetails.getActive() != null) {
+            plan.setActive(planDetails.getActive());
+        }
         return planRepository.save(plan);
     }
 

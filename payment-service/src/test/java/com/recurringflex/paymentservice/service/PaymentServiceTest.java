@@ -2,6 +2,7 @@ package com.recurringflex.paymentservice.service;
 
 import com.recurringflex.paymentservice.dto.PaymentRequest;
 import com.recurringflex.paymentservice.entity.Payment;
+import com.recurringflex.paymentservice.exception.ResourceNotFoundException;
 import com.recurringflex.paymentservice.repository.PaymentRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -93,5 +94,45 @@ public class PaymentServiceTest {
 
         assertEquals(1, list.size());
         assertEquals(2L, list.get(0).getUserId());
+    }
+
+    @Test
+    @DisplayName("Get Payment by ID: not-found is a ResourceNotFoundException (HTTP 404)")
+    void testGetPaymentById_NotFound_Type() {
+        when(paymentRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class, () -> paymentService.getPaymentById(99L));
+    }
+
+    @Test
+    @DisplayName("Refund: marks a SUCCESS payment as REFUNDED")
+    void testRefundPayment_Success() {
+        when(paymentRepository.findById(1L)).thenReturn(Optional.of(samplePayment));
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(i -> i.getArgument(0));
+
+        Payment result = paymentService.refundPayment(1L);
+
+        assertEquals("REFUNDED", result.getStatus());
+    }
+
+    @Test
+    @DisplayName("Refund: rejects a payment that is already refunded")
+    void testRefundPayment_AlreadyRefunded_ThrowsException() {
+        samplePayment.setStatus("REFUNDED");
+        when(paymentRepository.findById(1L)).thenReturn(Optional.of(samplePayment));
+
+        RuntimeException ex = assertThrows(RuntimeException.class, () -> paymentService.refundPayment(1L));
+        assertTrue(ex.getMessage().contains("Only SUCCESS payments can be refunded"));
+        verify(paymentRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Delete: removes an existing payment")
+    void testDeletePayment_Success() {
+        when(paymentRepository.findById(1L)).thenReturn(Optional.of(samplePayment));
+
+        paymentService.deletePayment(1L);
+
+        verify(paymentRepository).delete(samplePayment);
     }
 }

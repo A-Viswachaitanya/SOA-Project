@@ -1,0 +1,132 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: recurringflex-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./init-databases.sql:/docker-entrypoint-initdb.d/init-databases.sql
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - recurringflex-network
+
+  eureka-server:
+    build: ./eureka-server
+    container_name: recurringflex-eureka
+    ports:
+      - "8761:8761"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8761"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - recurringflex-network
+
+  user-service:
+    build: ./user-service
+    # Several replicas behind the gateway's lb:// routes. No container_name or host port,
+    # so instances can scale and the service is reachable only through the API Gateway.
+    deploy:
+      replicas: 2
+    restart: on-failure
+    expose:
+      - "8082"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/user_db
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=postgres
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-server:8761/eureka/
+      - JWT_SECRET=${JWT_SECRET:-RecurringFlexSecretKeyForJWTAuthenticationMustBe256Bits}
+      - INTERNAL_SECRET=${INTERNAL_SECRET:-RecurringFlexInternalGatewaySecretChangeMe}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-Admin@12345}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      eureka-server:
+        condition: service_started
+    networks:
+      - recurringflex-network
+
+  subscription-service:
+    build: ./subscription-service
+    # Single replica: its scheduler must not run twice. Reachable only through the API Gateway.
+    deploy:
+      replicas: 1
+    restart: on-failure
+    expose:
+      - "8081"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/subscription_db
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=postgres
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-server:8761/eureka/
+      - JWT_SECRET=${JWT_SECRET:-RecurringFlexSecretKeyForJWTAuthenticationMustBe256Bits}
+      - INTERNAL_SECRET=${INTERNAL_SECRET:-RecurringFlexInternalGatewaySecretChangeMe}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      eureka-server:
+        condition: service_started
+    networks:
+      - recurringflex-network
+
+  payment-service:
+    build: ./payment-service
+    # Several replicas behind the gateway's lb:// routes. No container_name or host port,
+    # so instances can scale and the service is reachable only through the API Gateway.
+    deploy:
+      replicas: 2
+    restart: on-failure
+    expose:
+      - "8083"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/payment_db
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=postgres
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-server:8761/eureka/
+      - JWT_SECRET=${JWT_SECRET:-RecurringFlexSecretKeyForJWTAuthenticationMustBe256Bits}
+      - INTERNAL_SECRET=${INTERNAL_SECRET:-RecurringFlexInternalGatewaySecretChangeMe}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      eureka-server:
+        condition: service_started
+    networks:
+      - recurringflex-network
+
+  api-gateway:
+    build: ./api-gateway
+    container_name: recurringflex-api-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-server:8761/eureka/
+      - JWT_SECRET=${JWT_SECRET:-RecurringFlexSecretKeyForJWTAuthenticationMustBe256Bits}
+      - INTERNAL_SECRET=${INTERNAL_SECRET:-RecurringFlexInternalGatewaySecretChangeMe}
+    depends_on:
+      - eureka-server
+      - user-service
+      - subscription-service
+      - payment-service
+    networks:
+      - recurringflex-network
+
+volumes:
+  postgres_data:
+
+networks:
+  recurringflex-network:
+    driver: bridge

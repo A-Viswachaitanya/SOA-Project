@@ -1,8 +1,14 @@
 package com.recurringflex.subscriptionservice.dto;
 
+import jakarta.validation.constraints.NotNull;
+
 public class SubscribeRequest {
+    // Optional: defaults to the logged-in user. Only an admin may subscribe someone else.
     private Long userId;
+
+    @NotNull(message = "planId is required")
     private Long planId;
+
     private Boolean autoRenew = false;
 
     public SubscribeRequest() {}

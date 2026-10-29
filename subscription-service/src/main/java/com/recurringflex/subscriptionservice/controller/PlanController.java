@@ -1,7 +1,9 @@
 package com.recurringflex.subscriptionservice.controller;
 
 import com.recurringflex.subscriptionservice.entity.Plan;
+import com.recurringflex.subscriptionservice.security.CurrentUser;
 import com.recurringflex.subscriptionservice.service.PlanService;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -10,6 +12,8 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 
+// Errors are mapped to HTTP status codes by GlobalExceptionHandler.
+// Plan mutations are ADMIN-only (also enforced at the gateway).
 @RestController
 @RequestMapping("/api/plans")
 public class PlanController {
@@ -18,13 +22,9 @@ public class PlanController {
     private PlanService planService;
 
     @PostMapping
-    public ResponseEntity<?> createPlan(@RequestBody Plan plan) {
-        try {
-            Plan createdPlan = planService.createPlan(plan);
-            return ResponseEntity.status(HttpStatus.CREATED).body(createdPlan);
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
-        }
+    public ResponseEntity<Plan> createPlan(@Valid @RequestBody Plan plan) {
+        CurrentUser.requireAdmin();
+        return ResponseEntity.status(HttpStatus.CREATED).body(planService.createPlan(plan));
     }
 
     @GetMapping
@@ -38,30 +38,20 @@ public class PlanController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<?> getPlanById(@PathVariable Long id) {
-        try {
-            return ResponseEntity.ok(planService.getPlanById(id));
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", e.getMessage()));
-        }
+    public ResponseEntity<Plan> getPlanById(@PathVariable Long id) {
+        return ResponseEntity.ok(planService.getPlanById(id));
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<?> updatePlan(@PathVariable Long id, @RequestBody Plan plan) {
-        try {
-            return ResponseEntity.ok(planService.updatePlan(id, plan));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
-        }
+    public ResponseEntity<Plan> updatePlan(@PathVariable Long id, @Valid @RequestBody Plan plan) {
+        CurrentUser.requireAdmin();
+        return ResponseEntity.ok(planService.updatePlan(id, plan));
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<?> deletePlan(@PathVariable Long id) {
-        try {
-            planService.deletePlan(id);
-            return ResponseEntity.ok(Map.of("message", "Plan deactivated successfully"));
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", e.getMessage()));
-        }
+    public ResponseEntity<Map<String, String>> deletePlan(@PathVariable Long id) {
+        CurrentUser.requireAdmin();
+        planService.deletePlan(id);
+        return ResponseEntity.ok(Map.of("message", "Plan deactivated successfully"));
     }
 }

@@ -2,6 +2,7 @@ package com.recurringflex.paymentservice.service;
 
 import com.recurringflex.paymentservice.dto.PaymentRequest;
 import com.recurringflex.paymentservice.entity.Payment;
+import com.recurringflex.paymentservice.exception.ResourceNotFoundException;
 import com.recurringflex.paymentservice.repository.PaymentRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -32,7 +33,7 @@ public class PaymentService {
 
     public Payment getPaymentById(Long id) {
         return paymentRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Payment not found with id: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("Payment not found with id: " + id));
     }
 
     public List<Payment> getPaymentsBySubscriptionId(Long subscriptionId) {
@@ -45,5 +46,19 @@ public class PaymentService {
 
     public List<Payment> getAllPayments() {
         return paymentRepository.findAll();
+    }
+
+    public Payment refundPayment(Long id) {
+        Payment payment = getPaymentById(id);
+        if (!"SUCCESS".equals(payment.getStatus())) {
+            throw new RuntimeException("Only SUCCESS payments can be refunded. Current status: " + payment.getStatus());
+        }
+        payment.setStatus("REFUNDED");
+        return paymentRepository.save(payment);
+    }
+
+    public void deletePayment(Long id) {
+        Payment payment = getPaymentById(id);
+        paymentRepository.delete(payment);
     }
 }

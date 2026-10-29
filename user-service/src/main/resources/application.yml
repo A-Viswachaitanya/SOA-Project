@@ -1,5 +1,5 @@
 server:
-  port: 8082
+  port: ${SERVER_PORT:8082}
 
 spring:
   application:
@@ -17,9 +17,21 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
 
+# Override secrets with environment variables outside local development
 jwt:
-  secret: RecurringFlexSecretKeyForJWTAuthenticationMustBe256Bits
-  expiration: 86400000
+  secret: ${JWT_SECRET:RecurringFlexSecretKeyForJWTAuthenticationMustBe256Bits}
+  expiration: ${JWT_EXPIRATION_MS:3600000}
+  issuer: recurringflex-user-service
+
+# Shared with the API Gateway; requests without it are rejected
+internal:
+  secret: ${INTERNAL_SECRET:RecurringFlexInternalGatewaySecretChangeMe}
+
+# Initial admin account (self-registration only creates USER accounts)
+admin:
+  username: ${ADMIN_USERNAME:admin}
+  email: ${ADMIN_EMAIL:admin@recurringflex.com}
+  password: ${ADMIN_PASSWORD:Admin@12345}
 
 eureka:
   client:

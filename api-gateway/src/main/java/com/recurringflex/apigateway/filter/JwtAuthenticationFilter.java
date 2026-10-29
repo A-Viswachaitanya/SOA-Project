@@ -22,8 +22,19 @@ import java.util.Map;
 @Component
 public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
 
-    @Value("${jwt.secret:RecurringFlexSecretKeyForJWTAuthenticationMustBe256Bits}")
+    // Identity headers set by this filter. Clients must never be able to supply them.
+    private static final List<String> IDENTITY_HEADERS = List.of("X-User-Id", "X-User-Role", "X-User-Name");
+    private static final String INTERNAL_SECRET_HEADER = "X-Internal-Secret";
+
+    @Value("${jwt.secret}")
     private String secret;
+
+    @Value("${jwt.issuer}")
+    private String issuer;
+
+    // Proves to downstream services that the request came through the gateway
+    @Value("${internal.secret}")
+    private String internalSecret;
 
     // Public endpoints that don't require authentication
     private final List<String> openEndpoints = List.of(
@@ -39,7 +50,10 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
             "ADMIN", List.of(
                     "/api/plans:POST",
                     "/api/plans:PUT",
-                    "/api/plans:DELETE"
+                    "/api/plans:DELETE",
+                    "/api/payments:POST",
+                    "/api/payments:PUT",
+                    "/api/payments:DELETE"
             )
     );
 
@@ -48,9 +62,13 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
         ServerHttpRequest request = exchange.getRequest();
         String path = request.getURI().getPath();
 
-        // Skip authentication for open endpoints
+        // Skip authentication for open endpoints, but still strip any forged identity headers
         if (isOpenEndpoint(path)) {
-            return chain.filter(exchange);
+            ServerHttpRequest sanitized = request.mutate()
+                    .headers(headers -> IDENTITY_HEADERS.forEach(headers::remove))
+                    .header(INTERNAL_SECRET_HEADER, internalSecret)
+                    .build();
+            return chain.filter(exchange.mutate().request(sanitized).build());
         }
 
         // Check for Authorization header
@@ -69,6 +87,7 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
             SecretKey key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
             Claims claims = Jwts.parser()
                     .verifyWith(key)
+                    .requireIssuer(issuer)
                     .build()
                     .parseSignedClaims(token)
                     .getPayload();
@@ -87,6 +106,8 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
 
             // Add user info to headers for downstream services
             ServerHttpRequest modifiedRequest = request.mutate()
+                    .headers(headers -> IDENTITY_HEADERS.forEach(headers::remove))
+                    .header(INTERNAL_SECRET_HEADER, internalSecret)
                     .header("X-User-Id", userId)
                     .header("X-User-Role", role != null ? role : "USER")
                     .header("X-User-Name", username)

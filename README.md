@@ -77,12 +77,15 @@ This project demonstrates core Service-Oriented Architecture (SOA) principles in
 
 #### API Endpoints
 
-| Method | Endpoint                    | Description               | Auth Required |
-|--------|-----------------------------|---------------------------|---------------|
-| POST   | /api/users/register         | Register a new user       | No            |
-| POST   | /api/users/login            | Authenticate and get JWT  | No            |
-| GET    | /api/users/{id}             | Get user by ID            | No            |
-| GET    | /api/users/username/{name}  | Get user by username      | No            |
+| Method | Endpoint                    | Description                                | Access         |
+|--------|-----------------------------|--------------------------------------------|----------------|
+| POST   | /api/users/register         | Register a new user (always `USER`)        | Public         |
+| POST   | /api/users/login            | Authenticate and get JWT                   | Public         |
+| GET    | /api/users                  | List all users                             | ADMIN          |
+| GET    | /api/users/{id}             | Get user by ID                             | Owner or ADMIN |
+| GET    | /api/users/username/{name}  | Get user by username                       | Owner or ADMIN |
+| PUT    | /api/users/{id}             | Update email / password (role: ADMIN only) | Owner or ADMIN |
+| DELETE | /api/users/{id}             | Delete a user                              | Owner or ADMIN |
 
 ### 4. Subscription Service
 
@@ -93,26 +96,29 @@ This project demonstrates core Service-Oriented Architecture (SOA) principles in
 
 #### Plan Endpoints
 
-| Method | Endpoint            | Description              |
-|--------|---------------------|--------------------------|
-| POST   | /api/plans          | Create a new plan        |
-| GET    | /api/plans          | Get all plans            |
-| GET    | /api/plans/active   | Get active plans         |
-| GET    | /api/plans/{id}     | Get plan by ID           |
-| PUT    | /api/plans/{id}     | Update a plan            |
-| DELETE | /api/plans/{id}     | Deactivate a plan        |
+| Method | Endpoint            | Description              | Access        |
+|--------|---------------------|--------------------------|---------------|
+| POST   | /api/plans          | Create a new plan        | ADMIN         |
+| GET    | /api/plans          | Get all plans            | Authenticated |
+| GET    | /api/plans/active   | Get active plans         | Authenticated |
+| GET    | /api/plans/{id}     | Get plan by ID           | Authenticated |
+| PUT    | /api/plans/{id}     | Update a plan            | ADMIN         |
+| DELETE | /api/plans/{id}     | Deactivate a plan        | ADMIN         |
 
 #### Subscription Endpoints
 
-| Method | Endpoint                           | Description                    |
-|--------|------------------------------------|--------------------------------|
-| POST   | /api/subscriptions/subscribe       | Subscribe user to a plan       |
-| GET    | /api/subscriptions                 | Get all subscriptions          |
-| GET    | /api/subscriptions/{id}            | Get subscription by ID         |
-| GET    | /api/subscriptions/user/{userId}   | Get subscriptions by user      |
-| GET    | /api/subscriptions/user/{userId}/active | Get active subscriptions  |
-| PUT    | /api/subscriptions/{id}/cancel     | Cancel a subscription          |
-| PUT    | /api/subscriptions/{id}/renew      | Renew a subscription           |
+| Method | Endpoint                                | Description                                       | Access         |
+|--------|-----------------------------------------|---------------------------------------------------|----------------|
+| POST   | /api/subscriptions/subscribe            | Subscribe to a plan (`userId` defaults to caller) | Owner or ADMIN |
+| GET    | /api/subscriptions                      | Get all subscriptions                             | ADMIN          |
+| GET    | /api/subscriptions/{id}                 | Get subscription by ID                            | Owner or ADMIN |
+| GET    | /api/subscriptions/user/{userId}        | Get subscriptions by user                         | Owner or ADMIN |
+| GET    | /api/subscriptions/user/{userId}/active | Get active subscriptions                          | Owner or ADMIN |
+| PUT    | /api/subscriptions/{id}/cancel          | Cancel a subscription                             | Owner or ADMIN |
+| PUT    | /api/subscriptions/{id}/renew           | Renew a subscription (charges the plan price)     | Owner or ADMIN |
+| DELETE | /api/subscriptions/{id}                 | Delete a subscription                             | ADMIN          |
+
+A subscription stays `ACTIVE` only once its payment succeeds. If payment-service declines the charge or is unreachable, the subscription is set to `CANCELLED` and the API returns `HTTP 402`. A failed renewal payment leaves the end date unchanged.
 
 ### 5. Payment Service
 
@@ -123,13 +129,17 @@ This project demonstrates core Service-Oriented Architecture (SOA) principles in
 
 #### API Endpoints
 
-| Method | Endpoint                                  | Description                       |
-|--------|-------------------------------------------|-----------------------------------|
-| POST   | /api/payments/process                     | Process a payment                 |
-| GET    | /api/payments                             | Get all payments                  |
-| GET    | /api/payments/{id}                        | Get payment by ID                 |
-| GET    | /api/payments/subscription/{subId}        | Get payments by subscription      |
-| GET    | /api/payments/user/{userId}               | Get payments by user              |
+| Method | Endpoint                           | Description                  | Access                       |
+|--------|------------------------------------|------------------------------|------------------------------|
+| POST   | /api/payments/process              | Process a payment            | ADMIN / subscription-service |
+| GET    | /api/payments                      | Get all payments             | ADMIN                        |
+| GET    | /api/payments/{id}                 | Get payment by ID            | Owner or ADMIN               |
+| GET    | /api/payments/subscription/{subId} | Get payments by subscription | Own payments only, or ADMIN  |
+| GET    | /api/payments/user/{userId}        | Get payments by user         | Owner or ADMIN               |
+| PUT    | /api/payments/{id}/refund          | Refund a successful payment  | ADMIN                        |
+| DELETE | /api/payments/{id}                 | Delete a payment record      | ADMIN                        |
+
+> Swagger UIs on the service ports are for documentation only. API calls sent directly to a service port are rejected with `HTTP 401`. Send them through the API Gateway on port 8080.
 
 ---
 
@@ -170,11 +180,9 @@ Tables are automatically created on application startup via Hibernate's `ddl-aut
 ### Step 1: Build all services
 
 ```bash
-cd eureka-server && mvn clean install
-cd api-gateway && mvn clean install
-cd user-service && mvn clean install
-cd subscription-service && mvn clean install
-cd payment-service && mvn clean install
+for s in eureka-server api-gateway user-service subscription-service payment-service; do
+  (cd $s && mvn clean install)
+done
 ```
 
 ### Step 2: Start services in order
@@ -201,34 +209,41 @@ mvn spring-boot:run
 # Terminal 5 - Start Payment Service
 cd payment-service
 mvn spring-boot:run
+
+# Terminal 6 - Start a SECOND User Service instance (for the load-balancing demo)
+cd user-service
+mvn spring-boot:run -Dspring-boot.run.arguments=--server.port=8092
 ```
 
 ### Step 3: Verify all services are registered
 
-Open the Eureka dashboard at http://localhost:8761 and confirm that all four services (API-GATEWAY, USER-SERVICE, SUBSCRIPTION-SERVICE, PAYMENT-SERVICE) are listed with status UP.
+Open the Eureka dashboard at http://localhost:8761 and confirm that all four services (API-GATEWAY, USER-SERVICE, SUBSCRIPTION-SERVICE, PAYMENT-SERVICE) are listed with status UP. USER-SERVICE should show two instances (ports 8082 and 8092).
 
 ---
 
 ## Testing the APIs
 
+Send all requests through the API Gateway (`http://localhost:8080`).
+
 ### 1. Register a User
 
 ```
-POST http://localhost:8082/api/users/register
+POST http://localhost:8080/api/users/register
 Content-Type: application/json
 
 {
   "username": "john",
   "email": "john@recurringflex.com",
-  "password": "password123",
-  "role": "USER"
+  "password": "password123"
 }
 ```
+
+Every self-registered account gets the `USER` role. A `role` field in the body is ignored.
 
 ### 2. Login
 
 ```
-POST http://localhost:8082/api/users/login
+POST http://localhost:8080/api/users/login
 Content-Type: application/json
 
 {
@@ -237,12 +252,15 @@ Content-Type: application/json
 }
 ```
 
-Copy the `token` from the response for authenticated requests.
+Copy the `token` from the response. Send it as `Authorization: Bearer <token>` on every other request.
 
-### 3. Create a Plan
+To log in as admin, use the seeded account (`admin` / `Admin@12345` by default; see [Security](#security)).
+
+### 3. Create a Plan (admin token)
 
 ```
-POST http://localhost:8081/api/plans
+POST http://localhost:8080/api/plans
+Authorization: Bearer <admin-token>
 Content-Type: application/json
 
 {
@@ -254,14 +272,14 @@ Content-Type: application/json
 }
 ```
 
-### 4. Subscribe to a Plan
+### 4. Subscribe to a Plan (user token)
 
 ```
-POST http://localhost:8081/api/subscriptions/subscribe
+POST http://localhost:8080/api/subscriptions/subscribe
+Authorization: Bearer <user-token>
 Content-Type: application/json
 
 {
-  "userId": 1,
   "planId": 1,
   "autoRenew": true
 }
@@ -270,7 +288,8 @@ Content-Type: application/json
 ### 5. Check Payment History
 
 ```
-GET http://localhost:8083/api/payments/user/1
+GET http://localhost:8080/api/payments/user/1
+Authorization: Bearer <user-token>
 ```
 
 ---
@@ -291,33 +310,38 @@ RecurringFlex/
 |
 |-- user-service/               # User Management and Authentication
 |   |-- src/main/java/
-|   |   |-- config/             # Swagger, CORS, Security configuration
+|   |   |-- config/             # Swagger, CORS, admin seeding, instance-id header
 |   |   |-- controller/         # REST endpoints
 |   |   |-- dto/                # Request/Response DTOs
 |   |   |-- entity/             # JPA entities
+|   |   |-- exception/          # Custom exceptions + global exception handler
 |   |   |-- repository/         # Spring Data repositories
-|   |   |-- security/           # JWT utility, Security config
+|   |   |-- security/           # JWT utility, Security config, gateway auth filter
 |   |   |-- service/            # Business logic
 |   |-- src/main/resources/     # application.yml
 |
 |-- subscription-service/       # Plans and Subscription Management
 |   |-- src/main/java/
 |   |   |-- client/             # Feign clients (User, Payment)
-|   |   |-- config/             # Swagger, CORS configuration
+|   |   |-- config/             # Swagger, CORS, Feign auth, instance-id header
 |   |   |-- controller/         # REST endpoints
 |   |   |-- dto/                # Request/Response DTOs
 |   |   |-- entity/             # JPA entities (Plan, Subscription)
+|   |   |-- exception/          # Custom exceptions + global exception handler
 |   |   |-- repository/         # Spring Data repositories
+|   |   |-- security/           # Gateway auth filter, caller identity
 |   |   |-- service/            # Business logic
 |   |-- src/main/resources/     # application.yml
 |
 |-- payment-service/            # Payment Processing
 |   |-- src/main/java/
-|   |   |-- config/             # Swagger, CORS configuration
+|   |   |-- config/             # Swagger, CORS, instance-id header
 |   |   |-- controller/         # REST endpoints
 |   |   |-- dto/                # Request/Response DTOs
 |   |   |-- entity/             # JPA entities
+|   |   |-- exception/          # Custom exceptions + global exception handler
 |   |   |-- repository/         # Spring Data repositories
+|   |   |-- security/           # Gateway auth filter, caller identity
 |   |   |-- service/            # Business logic
 |   |-- src/main/resources/     # application.yml
 |
@@ -326,19 +350,56 @@ RecurringFlex/
 |   |-- linkedin-article.md     # DTI & SOA Architecture Article (Rubric 5)
 |
 |-- docker-compose.yml          # Containerized deployment specification
-|-- validate-system.ps1         # Automated PowerShell E2E validation script
-|-- validate-system.sh          # Automated Bash E2E validation script
 |-- init-databases.sql          # Database initialization script
-|-- generate-ssl.bat            # SSL certificate generation script
 ```
 
 ---
 
-## Role-Based Access Control (RBAC)
+## Security
 
-The platform enforces role-based access control at the API Gateway layer:
-- **`USER`**: Can register, login, view active subscription plans, subscribe to plans, renew subscriptions, cancel subscriptions, and view their own payment receipts.
-- **`ADMIN`**: In addition to standard user capabilities, only administrators can perform Plan Management mutations (`POST /api/plans`, `PUT /api/plans/**`, `DELETE /api/plans/**`). Any non-admin attempting plan modifications receives `HTTP 403 Forbidden`.
+### JWT authentication
+
+- User Service issues HS256-signed tokens on login. Each token carries `sub` (user id), `username`, `role`, `iss` and a 1-hour expiry. Passwords are hashed with BCrypt.
+- The API Gateway's `JwtAuthenticationFilter` checks the signature, expiry and issuer on every non-public request. Missing, tampered or expired tokens get `HTTP 401`.
+- Login returns the same `Invalid username or password` error for an unknown user and a wrong password, so usernames cannot be enumerated.
+
+### Role-based access control and ownership
+
+- **`USER`**: can view plans and manage only their **own** profile, subscriptions and payments. Requests for another user's data get `HTTP 403`.
+- **`ADMIN`**: can also manage plans, list all users, subscriptions and payments, change roles, refund and delete payments, and delete subscriptions.
+- Self-registration always creates a `USER`. The first `ADMIN` is seeded at startup from `ADMIN_USERNAME` / `ADMIN_EMAIL` / `ADMIN_PASSWORD` (defaults `admin` / `admin@recurringflex.com` / `Admin@12345`). Admins can promote other users with `PUT /api/users/{id}` and `{"role":"ADMIN"}`.
+- Checks run in two places: coarse path rules at the gateway, and per-resource ownership checks in each service.
+
+### Gateway-only access
+
+- The gateway removes any client-supplied `X-User-*` headers. It then sets `X-User-Id` / `X-User-Role` from the verified token and adds a shared `X-Internal-Secret`.
+- Every service rejects `/api/**` requests that lack that secret. Calling a service port directly with forged headers therefore fails. In Docker the service ports are not published at all.
+- Feign calls between services add the same secret and the `SYSTEM` role.
+- Only the explicit gateway routes are exposed. The discovery locator is disabled, so auto-generated `/<service-id>/**` routes cannot dodge the path rules.
+
+### Secrets
+
+`JWT_SECRET`, `INTERNAL_SECRET` and `ADMIN_PASSWORD` are read from environment variables. The values in `application.yml` are development defaults only. Set real values outside local development.
+
+---
+
+## Load Balancing
+
+- Every gateway route uses `lb://<service-id>`. Spring Cloud LoadBalancer resolves instances from Eureka and distributes requests round-robin.
+- Feign clients in subscription-service (`UserClient`, `PaymentClient`) balance across instances the same way.
+- Each service adds an `X-Instance-Id` response header (`<service>:<host>:<port>`), which shows the instance that handled each request:
+
+```bash
+for i in 1 2 3 4; do
+  curl -s -o /dev/null -D - -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/users/1 | grep -i x-instance-id
+done
+# X-Instance-Id: user-service:host:8092
+# X-Instance-Id: user-service:host:8082
+# ...
+```
+
+- Locally: start a second instance with `--server.port=8092` (see Build and Run).
+- Docker: `user-service` and `payment-service` run 2 replicas each (`deploy.replicas`). Scale further with `docker compose up -d --scale user-service=3`. `subscription-service` stays at 1 replica because its scheduler must not run twice.
 
 ---
 
@@ -368,25 +429,6 @@ cd ../user-service && mvn test
 cd ../payment-service && mvn test
 ```
 
-### End-to-End Validation Script
-
-An automated end-to-end test script verifies the entire running system:
-1. Eureka Service Registry availability
-2. User registration and JWT authentication
-3. Admin registration and RBAC enforcement (blocking standard user from plan creation, allowing admin)
-4. Subscription activation, renewal, and cancellation lifecycle
-5. Payment transaction logging and audit trail
-6. Circuit breaker fallback responsiveness
-
-```powershell
-# On Windows (PowerShell)
-powershell -ExecutionPolicy Bypass -File validate-system.ps1
-
-# On Linux / macOS (Bash)
-chmod +x validate-system.sh
-./validate-system.sh
-```
-
 ---
 
 ## Docker Deployment
@@ -395,10 +437,12 @@ To deploy the entire platform (PostgreSQL, Eureka, Gateway, and all 3 microservi
 
 ```bash
 # 1. Package all services into JARs
-mvn clean package -DskipTests
+for s in eureka-server api-gateway user-service subscription-service payment-service; do
+  (cd $s && mvn clean package -DskipTests)
+done
 
-# 2. Start the cluster
-docker-compose up -d
+# 2. Start the cluster (optionally export JWT_SECRET, INTERNAL_SECRET, ADMIN_PASSWORD first)
+docker-compose up -d --build
 
 # 3. Check container status
 docker-compose ps
@@ -427,8 +471,23 @@ All services are configured to accept cross-origin requests from `http://localho
 
 - Tokens are issued by the User Service upon successful login.
 - The API Gateway validates JWT tokens for all secured endpoints via the `JwtAuthenticationFilter`.
-- Public endpoints (`/api/users/register`, `/api/users/login`, Swagger UI paths) bypass authentication.
-- User identity (`X-User-Id`, `X-User-Name`, `X-User-Role`) is injected into downstream request headers.
+- Public endpoints (`/api/users/register`, `/api/users/login`) bypass authentication.
+- User identity (`X-User-Id`, `X-User-Name`, `X-User-Role`) is injected into downstream request headers. Services enforce ownership with it; see [Security](#security).
+
+### Error Handling
+
+Each service has a `GlobalExceptionHandler` that maps errors to consistent JSON (`{"error": "..."}`) and status codes:
+
+| Status | Cause                            |
+|--------|----------------------------------|
+| 400    | Validation or business rule      |
+| 401    | Bad credentials                  |
+| 402    | Payment failed                   |
+| 403    | Access denied                    |
+| 404    | Resource not found               |
+| 503    | A dependent service is down      |
+
+Request bodies are validated with Bean Validation (`@Valid`).
 
 ### Inter-Service Communication
 
@@ -452,6 +511,6 @@ Service ports and database connections are defined in each service's `applicatio
 |----------------------|------|------------------|
 | Eureka Server        | 8761 | None             |
 | API Gateway          | 8080 | None             |
-| User Service         | 8082 | user_db          |
+| User Service         | 8082 (+8092 second instance) | user_db |
 | Subscription Service | 8081 | subscription_db  |
 | Payment Service      | 8083 | payment_db       |

@@ -1,5 +1,5 @@
 server:
-  port: 8081
+  port: ${SERVER_PORT:8081}
 
 spring:
   application:
@@ -16,6 +16,10 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
+
+# Shared with the API Gateway; requests without it are rejected
+internal:
+  secret: ${INTERNAL_SECRET:RecurringFlexInternalGatewaySecretChangeMe}
 
 eureka:
   client:
